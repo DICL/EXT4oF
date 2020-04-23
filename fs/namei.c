@@ -1657,6 +1657,12 @@ again:
 	if (unlikely(!d_in_lookup(dentry))) {
 		if (!(flags & LOOKUP_NO_REVAL)) {
 			int error = d_revalidate(dentry, flags);
+
+			// added by daegyu 
+			if (flags & O_RDREMOTE) {
+				error = 0;
+			}
+
 			if (unlikely(error <= 0)) {
 				if (!error) {
 					d_invalidate(dentry);
@@ -1668,6 +1674,12 @@ again:
 			}
 		}
 	} else {
+	
+		// added by daegyu 
+		if (flags & O_RDREMOTE) {
+			inode->i_state |= I_INVALID;
+		}
+
 		old = inode->i_op->lookup(inode, dentry, flags);
 		d_lookup_done(dentry);
 		if (unlikely(old)) {
@@ -1805,8 +1817,15 @@ static int walk_component(struct nameidata *nd, int flags)
 	}
 	err = lookup_fast(nd, &path, &inode, &seq);
 	if (unlikely(err <= 0)) {
-		if (err < 0)
-			return err;
+		// added by daegyu
+		if (err < 0) {
+			if (err == -ENOENT && nd->flags & O_RDREMOTE) {
+				goto middle_path_negative_bypass;
+			}else
+				return err;
+		}
+
+middle_path_negative_bypass:
 		path.dentry = lookup_slow(&nd->last, nd->path.dentry,
 					  nd->flags);
 		if (IS_ERR(path.dentry))
@@ -3152,6 +3171,17 @@ static int lookup_open(struct nameidata *nd, struct path *path,
 			break;
 
 		error = d_revalidate(dentry, nd->flags);
+		
+		// added by daegyu 
+		if (open_flag & O_RDREMOTE) {
+			// negative open file handling 
+			error = 0;
+			dir_inode->i_state |= I_INVALID; 
+
+			dentry_parent = dentry->d_parent; 
+			dentry_parent->d_lockref.count++;
+		}
+
 		if (likely(error > 0))
 			break;
 		if (error)
@@ -3210,6 +3240,12 @@ static int lookup_open(struct nameidata *nd, struct path *path,
 
 no_open:
 	if (d_in_lookup(dentry)) {
+		
+		// added by daegyu 
+		if (open_flag & O_RDREMOTE) {
+			dir_inode->i_state |= I_INVALID;
+		}
+
 		struct dentry *res = dir_inode->i_op->lookup(dir_inode, dentry,
 							     nd->flags);
 		d_lookup_done(dentry);
@@ -3285,9 +3321,19 @@ static int do_last(struct nameidata *nd,
 		if (likely(error > 0))
 			goto finish_lookup;
 
-		if (error < 0)
+		// added by daegyu
+		if (error < 0) {
+			if (open_flag & O_RDREMOTE) {
+				nd->flags &= ~LOOKUP_RCU;
+				while (dir->d_lockref.count > 1) {
+					dir->d_lockref.count--;
+				}
+				goto last_path_negative_bypass;
+			}
 			return error;
+		}
 
+last_path_negative_bypass:
 		BUG_ON(nd->inode != dir->d_inode);
 		BUG_ON(nd->flags & LOOKUP_RCU);
 	} else {
@@ -3530,6 +3576,12 @@ static struct file *path_openat(struct nameidata *nd,
 		error = do_o_path(nd, flags, file);
 	} else {
 		const char *s = path_init(nd, flags);
+		
+		// added by daegyu
+		if (op->open_flags & O_RDREMOTE) {
+			nd->flags |= O_RDREMOTE;
+		}
+
 		while (!(error = link_path_walk(s, nd)) &&
 			(error = do_last(nd, file, op)) > 0) {
 			nd->flags &= ~(LOOKUP_OPEN|LOOKUP_CREATE|LOOKUP_EXCL);
