@@ -16,6 +16,9 @@
  * When introducing new O_* bits, please check its uniqueness in fcntl_init().
  */
 
+// added by daegyu: remote read only flag for java
+#define O_RDREMOTE  040000000
+
 #define O_ACCMODE	00000003
 #define O_RDONLY	00000000
 #define O_WRONLY	00000001

@@ -962,8 +962,6 @@ int ext4_reread_dir(struct inode *inode, ext4_fsblk_t pblk)
 		return 0;
 }
 
-
-
 /*
  * `handle' can be NULL if create is zero
  */
@@ -989,7 +987,7 @@ struct buffer_head *ext4_getblk(handle_t *handle, struct inode *inode,
 	// added by daegyu
 	if (inode->i_state & I_INVALID) {
 		if (!ext4_reread_dir(inode, map.m_pblk))
-			printk("/////// Directory data block reread fail...");
+			ext4_dg_debug("/////// Directory data block reread fail...");
 	}
 
 	bh = sb_getblk(inode->i_sb, map.m_pblk);
@@ -5110,6 +5108,7 @@ bad_inode:
 // added by daegyu                                                            
 int ext4_refresh_i_table(struct inode *inode) 
 {
+	//ext4_dg_debug("");
 	struct super_block *sb = inode->i_sb;
 	ext4_group_t block_group = (inode->i_ino - 1) / EXT4_INODES_PER_GROUP(sb);
 	struct ext4_group_desc *gdp = ext4_get_group_desc(sb, block_group, NULL);
@@ -5153,6 +5152,10 @@ struct inode *ext4_iget_remote(struct super_block *sb, unsigned long ino)
 	projid_t i_projid;
 	int i; //
 
+	// from ext4_iget_normal 
+	if (ino < EXT4_FIRST_INO(sb) && ino != EXT4_ROOT_INO)
+		return ERR_PTR(-EFSCORRUPTED);
+
 	inode = iget_locked(sb, ino);
 	if (!inode)
 		return ERR_PTR(-ENOMEM);
@@ -5165,8 +5168,13 @@ struct inode *ext4_iget_remote(struct super_block *sb, unsigned long ino)
 	// added by daegyu: give two chances to reread inode table
 	for (i = 0; i < 3; i++) {
 		ret = __ext4_get_inode_loc(inode, &iloc, 0);
-		if (ret < 0)
+
+		//ext4_dg_debug("iloc offset: %lu, block_group: %u\n", iloc.offset, iloc.block_group); // daegyu
+
+		if (ret < 0) {
+			//ext4_dg_debug("ret < 0, goto bad_inode"); // daegyu
 			goto bad_inode;
+		}
 		raw_inode = ext4_raw_inode(&iloc);
 
 		if ((ino == EXT4_ROOT_INO) && (raw_inode->i_links_count == 0)) {
@@ -5174,6 +5182,8 @@ struct inode *ext4_iget_remote(struct super_block *sb, unsigned long ino)
 			ret = -EFSCORRUPTED;
 			goto bad_inode;
 		}
+
+		//ext4_dg_debug("i_mode: %u, i_block[0]: %u\n", raw_inode->i_mode, raw_inode->i_block[0]); // daegyu
 
 		if (EXT4_INODE_SIZE(inode->i_sb) > EXT4_GOOD_OLD_INODE_SIZE) {
 			ei->i_extra_isize = le16_to_cpu(raw_inode->i_extra_isize);
@@ -5203,61 +5213,62 @@ struct inode *ext4_iget_remote(struct super_block *sb, unsigned long ino)
 		}
 
 		if (!ext4_inode_csum_verify(inode, raw_inode, ei)) {
-			EXT4_ERROR_INODE(inode, "checksum invalid");
-			ret = -EFSBADCRC;
+			if (i < 2) {
+				if(!ext4_refresh_i_table(inode))
+					ext4_dg_debug("//// Inode table refresh fail.., iter: %d", i);
+			} else {
+				EXT4_ERROR_INODE(inode, "checksum invalid");
+				ret = -EFSBADCRC;
+				goto bad_inode;
+			}
+		}else 
+			break;
+
+	}
+
+	inode->i_mode = le16_to_cpu(raw_inode->i_mode);
+	i_uid = (uid_t)le16_to_cpu(raw_inode->i_uid_low);
+	i_gid = (gid_t)le16_to_cpu(raw_inode->i_gid_low);
+	if (ext4_has_feature_project(sb) &&
+			EXT4_INODE_SIZE(sb) > EXT4_GOOD_OLD_INODE_SIZE &&
+			EXT4_FITS_IN_INODE(raw_inode, ei, i_projid))
+		i_projid = (projid_t)le32_to_cpu(raw_inode->i_projid);
+	else
+		i_projid = EXT4_DEF_PROJID;
+
+	if (!(test_opt(inode->i_sb, NO_UID32))) {
+		i_uid |= le16_to_cpu(raw_inode->i_uid_high) << 16;
+		i_gid |= le16_to_cpu(raw_inode->i_gid_high) << 16;
+	}
+	i_uid_write(inode, i_uid);
+	i_gid_write(inode, i_gid);
+	ei->i_projid = make_kprojid(&init_user_ns, i_projid);
+	set_nlink(inode, le16_to_cpu(raw_inode->i_links_count));
+
+	ext4_clear_state_flags(ei);	/* Only relevant on 32-bit archs */
+	ei->i_inline_off = 0;
+	ei->i_dir_start_lookup = 0;
+	ei->i_dtime = le32_to_cpu(raw_inode->i_dtime);
+	/* We now have enough fields to check if the inode was active or not.
+	 * This is needed because nfsd might try to access dead inodes
+	 * the test is that same one that e2fsck uses
+	 * NeilBrown 1999oct15
+	 */
+	if (inode->i_nlink == 0) {
+		if ((inode->i_mode == 0 ||
+					!(EXT4_SB(inode->i_sb)->s_mount_state & EXT4_ORPHAN_FS)) &&
+				ino != EXT4_BOOT_LOADER_INO) {
+			/* this inode is deleted */
+			// printk("inode->i_mode == 0"); // added by daegyu
+			ret = -ESTALE;
 			goto bad_inode;
 		}
-
-		inode->i_mode = le16_to_cpu(raw_inode->i_mode);
-		i_uid = (uid_t)le16_to_cpu(raw_inode->i_uid_low);
-		i_gid = (gid_t)le16_to_cpu(raw_inode->i_gid_low);
-		if (ext4_has_feature_project(sb) &&
-				EXT4_INODE_SIZE(sb) > EXT4_GOOD_OLD_INODE_SIZE &&
-				EXT4_FITS_IN_INODE(raw_inode, ei, i_projid))
-			i_projid = (projid_t)le32_to_cpu(raw_inode->i_projid);
-		else
-			i_projid = EXT4_DEF_PROJID;
-
-		if (!(test_opt(inode->i_sb, NO_UID32))) {
-			i_uid |= le16_to_cpu(raw_inode->i_uid_high) << 16;
-			i_gid |= le16_to_cpu(raw_inode->i_gid_high) << 16;
-		}
-		i_uid_write(inode, i_uid);
-		i_gid_write(inode, i_gid);
-		ei->i_projid = make_kprojid(&init_user_ns, i_projid);
-		set_nlink(inode, le16_to_cpu(raw_inode->i_links_count));
-
-		ext4_clear_state_flags(ei);	/* Only relevant on 32-bit archs */
-		ei->i_inline_off = 0;
-		ei->i_dir_start_lookup = 0;
-		ei->i_dtime = le32_to_cpu(raw_inode->i_dtime);
-		/* We now have enough fields to check if the inode was active or not.
-		 * This is needed because nfsd might try to access dead inodes
-		 * the test is that same one that e2fsck uses
-		 * NeilBrown 1999oct15
-		 */
-		if (inode->i_nlink == 0) {
-			if ((inode->i_mode == 0 ||
-						!(EXT4_SB(inode->i_sb)->s_mount_state & EXT4_ORPHAN_FS)) &&
-					ino != EXT4_BOOT_LOADER_INO) {
-				/* this inode is deleted */
-				//
-				if (i < 2) {
-					if(!ext4_refresh_i_table(inode))
-						printk("//// Inode table refresh fail.., iter: %d", i);
-				} else {
-					ret = -ESTALE;
-					goto bad_inode;
-				}
-			}
-			/* The only unlinked inodes we let through here have
-			 * valid i_mode and are being read by the orphan
-			 * recovery code: that's fine, we're about to complete
-			 * the process of deleting those.
-			 * OR it is the EXT4_BOOT_LOADER_INO which is
-			 * not initialized on a new filesystem. */
-		} else 
-			break; // fail -> refresh -> success so break for loop
+		/* The only unlinked inodes we let through here have
+		 * valid i_mode and are being read by the orphan
+		 * recovery code: that's fine, we're about to complete
+		 * the process of deleting those.
+		 * OR it is the EXT4_BOOT_LOADER_INO which is
+		 * not initialized on a new filesystem. */
 	}
 
 	ei->i_flags = le32_to_cpu(raw_inode->i_flags);
@@ -5409,10 +5420,12 @@ struct inode *ext4_iget_remote(struct super_block *sb, unsigned long ino)
 	}
 	brelse(iloc.bh);
 
+	// ext4_dg_debug("return good inode ino: %lu\n", ino); // daegyu
 	unlock_new_inode(inode);
 	return inode;
 
 bad_inode:
+	// ext4_dg_debug("return bad inode ino: %lu\n", ino); // daegyu
 	brelse(iloc.bh);
 	iget_failed(inode);
 	return ERR_PTR(ret);

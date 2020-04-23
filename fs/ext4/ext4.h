@@ -69,6 +69,15 @@
 /*
  * Debug code
  */
+
+// added by daegyu
+#define EXT4_DG_DEBUG
+#ifdef EXT4_DG_DEBUG 
+#define ext4_dg_debug(fmt, ...)  printk("%s :" fmt, __func__, ##__VA_ARGS__)
+#else 
+#define ext4_dg_debug(fmt, ...)  no_printk(fmt, ##__VA_ARGS__)
+#endif
+
 #ifdef EXT4FS_DEBUG
 #define ext4_debug(f, a...)						\
 	do {								\
@@ -2456,6 +2465,8 @@ int do_journal_get_write_access(handle_t *handle,
 
 extern struct inode *ext4_iget(struct super_block *, unsigned long);
 extern struct inode *ext4_iget_normal(struct super_block *, unsigned long);
+extern struct inode *ext4_iget_remote(struct super_block *, unsigned long); // added by daegyu
+
 extern int  ext4_write_inode(struct inode *, struct writeback_control *);
 extern int  ext4_setattr(struct dentry *, struct iattr *);
 extern int  ext4_getattr(const struct path *, struct kstat *, u32, unsigned int);

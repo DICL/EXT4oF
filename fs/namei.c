@@ -3152,6 +3152,7 @@ static int lookup_open(struct nameidata *nd, struct path *path,
 	struct inode *dir_inode = dir->d_inode;
 	int open_flag = op->open_flag;
 	struct dentry *dentry;
+	struct dentry *dentry_parent; //
 	int error, create_error = 0;
 	umode_t mode = op->mode;
 	DECLARE_WAIT_QUEUE_HEAD_ONSTACK(wq);
@@ -3578,7 +3579,7 @@ static struct file *path_openat(struct nameidata *nd,
 		const char *s = path_init(nd, flags);
 		
 		// added by daegyu
-		if (op->open_flags & O_RDREMOTE) {
+		if (op->open_flag & O_RDREMOTE) {
 			nd->flags |= O_RDREMOTE;
 		}
 
