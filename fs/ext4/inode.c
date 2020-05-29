@@ -5221,60 +5221,54 @@ struct inode *ext4_iget_remote(struct super_block *sb, unsigned long ino)
 				ret = -EFSBADCRC;
 				goto bad_inode;
 			}
-		}
-
-		inode->i_mode = le16_to_cpu(raw_inode->i_mode);
-		i_uid = (uid_t)le16_to_cpu(raw_inode->i_uid_low);
-		i_gid = (gid_t)le16_to_cpu(raw_inode->i_gid_low);
-		if (ext4_has_feature_project(sb) &&
-				EXT4_INODE_SIZE(sb) > EXT4_GOOD_OLD_INODE_SIZE &&
-				EXT4_FITS_IN_INODE(raw_inode, ei, i_projid))
-			i_projid = (projid_t)le32_to_cpu(raw_inode->i_projid);
-		else
-			i_projid = EXT4_DEF_PROJID;
-
-		if (!(test_opt(inode->i_sb, NO_UID32))) {
-			i_uid |= le16_to_cpu(raw_inode->i_uid_high) << 16;
-			i_gid |= le16_to_cpu(raw_inode->i_gid_high) << 16;
-		}
-		i_uid_write(inode, i_uid);
-		i_gid_write(inode, i_gid);
-		ei->i_projid = make_kprojid(&init_user_ns, i_projid);
-		set_nlink(inode, le16_to_cpu(raw_inode->i_links_count));
-
-		ext4_clear_state_flags(ei);	/* Only relevant on 32-bit archs */
-		ei->i_inline_off = 0;
-		ei->i_dir_start_lookup = 0;
-		ei->i_dtime = le32_to_cpu(raw_inode->i_dtime);
-		/* We now have enough fields to check if the inode was active or not.
-		 * This is needed because nfsd might try to access dead inodes
-		 * the test is that same one that e2fsck uses
-		 * NeilBrown 1999oct15
-		 */
-		if (inode->i_nlink == 0) {
-			if ((inode->i_mode == 0 || !(EXT4_SB(inode->i_sb)->s_mount_state & EXT4_ORPHAN_FS)) &&
-					ino != EXT4_BOOT_LOADER_INO) {
-				if(i < 2) { 
-					if(!ext4_refresh_i_table(inode))
-						printk("//// inode->i_nlink: inode table refresh fail.., iter: %d", i);
-				} else {
-					/* this inode is deleted */
-					printk("daegyu: ///// inode->i_mode == 0"); // added by daegyu
-					ret = -ESTALE;
-					goto bad_inode;
-				}
-			}
-			/* The only unlinked inodes we let through here have
-			 * valid i_mode and are being read by the orphan
-			 * recovery code: that's fine, we're about to complete
-			 * the process of deleting those.
-			 * OR it is the EXT4_BOOT_LOADER_INO which is
-			 * not initialized on a new filesystem. */	
-		}else 
+		} else 
 			break;
+	}
 
-	} // for 문
+	inode->i_mode = le16_to_cpu(raw_inode->i_mode);
+	i_uid = (uid_t)le16_to_cpu(raw_inode->i_uid_low);
+	i_gid = (gid_t)le16_to_cpu(raw_inode->i_gid_low);
+	if (ext4_has_feature_project(sb) &&
+			EXT4_INODE_SIZE(sb) > EXT4_GOOD_OLD_INODE_SIZE &&
+			EXT4_FITS_IN_INODE(raw_inode, ei, i_projid))
+		i_projid = (projid_t)le32_to_cpu(raw_inode->i_projid);
+	else
+		i_projid = EXT4_DEF_PROJID;
 
+	if (!(test_opt(inode->i_sb, NO_UID32))) {
+		i_uid |= le16_to_cpu(raw_inode->i_uid_high) << 16;
+		i_gid |= le16_to_cpu(raw_inode->i_gid_high) << 16;
+	}
+	i_uid_write(inode, i_uid);
+	i_gid_write(inode, i_gid);
+	ei->i_projid = make_kprojid(&init_user_ns, i_projid);
+	set_nlink(inode, le16_to_cpu(raw_inode->i_links_count));
+
+	ext4_clear_state_flags(ei);	/* Only relevant on 32-bit archs */
+	ei->i_inline_off = 0;
+	ei->i_dir_start_lookup = 0;
+	ei->i_dtime = le32_to_cpu(raw_inode->i_dtime);
+	/* We now have enough fields to check if the inode was active or not.
+	 * This is needed because nfsd might try to access dead inodes
+	 * the test is that same one that e2fsck uses
+	 * NeilBrown 1999oct15
+	 */
+	if (inode->i_nlink == 0) {
+		if ((inode->i_mode == 0 || !(EXT4_SB(inode->i_sb)->s_mount_state & EXT4_ORPHAN_FS)) &&
+				ino != EXT4_BOOT_LOADER_INO) {
+			/* this inode is deleted */
+			printk("daegyu: ///// inode->i_mode == 0"); // added by daegyu
+			ret = -ESTALE;
+			goto bad_inode;
+		}
+
+		/* The only unlinked inodes we let through here have
+		 * valid i_mode and are being read by the orphan
+		 * recovery code: that's fine, we're about to complete
+		 * the process of deleting those.
+		 * OR it is the EXT4_BOOT_LOADER_INO which is
+		 * not initialized on a new filesystem. */
+	}
 
 	ei->i_flags = le32_to_cpu(raw_inode->i_flags);
 	ext4_set_inode_flags(inode);
