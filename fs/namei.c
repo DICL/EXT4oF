@@ -1682,10 +1682,6 @@ again:
 
 		old = inode->i_op->lookup(inode, dentry, flags);
 		
-		if (flags & O_RDREMOTE) {
-			inode->i_state &= ~I_INVALID; // added by daegyu
-		}
-		
 		d_lookup_done(dentry);
 		if (unlikely(old)) {
 			dput(dentry);
@@ -3254,9 +3250,6 @@ no_open:
 
 		struct dentry *res = dir_inode->i_op->lookup(dir_inode, dentry,
 							     nd->flags);
-		if (open_flag & O_RDREMOTE) {
-			dir_inode->i_state &= ~I_INVALID; // added by daegyu
-		}	
 		d_lookup_done(dentry);
 		if (unlikely(res)) {
 			if (IS_ERR(res)) {
