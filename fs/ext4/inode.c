@@ -5137,7 +5137,7 @@ int ext4_refresh_i_table(struct inode *inode)
 }
 
 // added by daegyu
-struct inode *ext4_iget_remote(struct super_block *sb, unsigned long ino, unsigned int remote_flag)
+struct inode *ext4_iget_remote(struct super_block *sb, unsigned long ino)
 {
 	struct ext4_iloc iloc;
 	struct ext4_inode *raw_inode;
@@ -5166,7 +5166,7 @@ struct inode *ext4_iget_remote(struct super_block *sb, unsigned long ino, unsign
 	iloc.bh = NULL;
 
 	// added by daegyu: give two chances to reread inode table
-	for (i = 0; i < 3; i++) {
+	for (i = 0; i < 4; i++) {
 		ret = __ext4_get_inode_loc(inode, &iloc, 0);
 
 		//ext4_dg_debug("iloc offset: %lu, block_group: %u\n", iloc.offset, iloc.block_group); // daegyu
@@ -5213,9 +5213,9 @@ struct inode *ext4_iget_remote(struct super_block *sb, unsigned long ino, unsign
 		}
 
 		if (!ext4_inode_csum_verify(inode, raw_inode, ei)) {
-			if (i < 2) {
+			if (i < 4) {
 				if(!ext4_refresh_i_table(inode))
-					ext4_dg_debug("//// Inode table refresh fail.., iter: %d", i);
+					printk("//// Inode table refresh fail.., iter: %d", i);
 			} else {
 				EXT4_ERROR_INODE(inode, "checksum invalid");
 				ret = -EFSBADCRC;
@@ -5259,7 +5259,7 @@ struct inode *ext4_iget_remote(struct super_block *sb, unsigned long ino, unsign
 					!(EXT4_SB(inode->i_sb)->s_mount_state & EXT4_ORPHAN_FS)) &&
 				ino != EXT4_BOOT_LOADER_INO) {
 			/* this inode is deleted */
-			// printk("inode->i_mode == 0"); // added by daegyu
+			printk("daegyu: ///// inode->i_mode == 0"); // added by daegyu
 			ret = -ESTALE;
 			goto bad_inode;
 		}
@@ -5421,14 +5421,12 @@ struct inode *ext4_iget_remote(struct super_block *sb, unsigned long ino, unsign
 	brelse(iloc.bh);
 
 	// ext4_dg_debug("return good inode ino: %lu\n", ino); // daegyu
-	remote_flag &= ~I_INVALID; // added by daegyu
 	unlock_new_inode(inode);
 	return inode;
 
 bad_inode:
 	// ext4_dg_debug("return bad inode ino: %lu\n", ino); // daegyu
 	brelse(iloc.bh);
-	remote_flag &= ~I_INVALID; // added by daegyu
 	iget_failed(inode);
 	return ERR_PTR(ret);
 }

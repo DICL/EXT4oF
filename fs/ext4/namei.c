@@ -1574,8 +1574,7 @@ static struct dentry *ext4_lookup(struct inode *dir, struct dentry *dentry, unsi
 
 		// added by daegyu
 		if (dir->i_state & I_INVALID) {
-			inode = ext4_iget_remote(dir->i_sb, ino, dir->i_state);
-			// dir->i_state &= ~I_INVALID;
+			inode = ext4_iget_remote(dir->i_sb, ino);
 		} else 
 			inode = ext4_iget_normal(dir->i_sb, ino);
 

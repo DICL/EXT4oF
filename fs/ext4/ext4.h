@@ -2465,7 +2465,7 @@ int do_journal_get_write_access(handle_t *handle,
 
 extern struct inode *ext4_iget(struct super_block *, unsigned long);
 extern struct inode *ext4_iget_normal(struct super_block *, unsigned long);
-extern struct inode *ext4_iget_remote(struct super_block *, unsigned long, unsigned int); // added by daegyu
+extern struct inode *ext4_iget_remote(struct super_block *, unsigned long); // added by daegyu
 
 extern int  ext4_write_inode(struct inode *, struct writeback_control *);
 extern int  ext4_setattr(struct dentry *, struct iattr *);
