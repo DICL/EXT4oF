@@ -5137,7 +5137,7 @@ int ext4_refresh_i_table(struct inode *inode)
 }
 
 // added by daegyu
-struct inode *ext4_iget_remote(struct super_block *sb, unsigned long ino)
+struct inode *ext4_iget_remote(struct super_block *sb, unsigned long ino, unsigned int remote_flag)
 {
 	struct ext4_iloc iloc;
 	struct ext4_inode *raw_inode;
@@ -5421,12 +5421,14 @@ struct inode *ext4_iget_remote(struct super_block *sb, unsigned long ino)
 	brelse(iloc.bh);
 
 	// ext4_dg_debug("return good inode ino: %lu\n", ino); // daegyu
+	remote_flag &= ~I_INVALID; // added by daegyu
 	unlock_new_inode(inode);
 	return inode;
 
 bad_inode:
 	// ext4_dg_debug("return bad inode ino: %lu\n", ino); // daegyu
 	brelse(iloc.bh);
+	remote_flag &= ~I_INVALID; // added by daegyu
 	iget_failed(inode);
 	return ERR_PTR(ret);
 }
