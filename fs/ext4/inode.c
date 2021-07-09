@@ -5202,7 +5202,7 @@ struct inode *ext4_iget_remote(struct super_block *sb, unsigned long ino)
 	iloc.bh = NULL;
 
 	// added by daegyu: give two chances to reread inode table
-	for (i = 0; i < 3; i++) {
+	for (i = 0; i < 2; i++) {
 		ret = __ext4_get_inode_loc(inode, &iloc, 0);
 
 		//ext4_dg_debug("iloc offset: %lu, block_group: %u\n", iloc.offset, iloc.block_group); // daegyu
@@ -5257,9 +5257,8 @@ struct inode *ext4_iget_remote(struct super_block *sb, unsigned long ino)
 				ret = -EFSBADCRC;
 				goto bad_inode;
 			}
-		}else 
+		} else 
 			break;
-
 	}
 
 	inode->i_mode = le16_to_cpu(raw_inode->i_mode);
@@ -5291,14 +5290,14 @@ struct inode *ext4_iget_remote(struct super_block *sb, unsigned long ino)
 	 * NeilBrown 1999oct15
 	 */
 	if (inode->i_nlink == 0) {
-		if ((inode->i_mode == 0 ||
-					!(EXT4_SB(inode->i_sb)->s_mount_state & EXT4_ORPHAN_FS)) &&
+		if ((inode->i_mode == 0 || !(EXT4_SB(inode->i_sb)->s_mount_state & EXT4_ORPHAN_FS)) &&
 				ino != EXT4_BOOT_LOADER_INO) {
 			/* this inode is deleted */
-			// printk("inode->i_mode == 0"); // added by daegyu
+			printk("daegyu: ///// inode->i_mode == 0"); // added by daegyu
 			ret = -ESTALE;
 			goto bad_inode;
 		}
+
 		/* The only unlinked inodes we let through here have
 		 * valid i_mode and are being read by the orphan
 		 * recovery code: that's fine, we're about to complete

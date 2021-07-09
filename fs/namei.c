@@ -1681,6 +1681,7 @@ again:
 		}
 		
 		old = inode->i_op->lookup(inode, dentry, flags);
+		
 		d_lookup_done(dentry);
 		if (unlikely(old)) {
 			dput(dentry);
