@@ -71,6 +71,9 @@
  */
 
 // added by daegyu
+#define EXT4OF_TIME_CHECK
+//#define EXT4OF_TIME_CHECK2
+
 #define EXT4_DG_DEBUG
 #ifdef EXT4_DG_DEBUG 
 #define ext4_dg_debug(fmt, ...)  printk("%s :" fmt, __func__, ##__VA_ARGS__)
@@ -2518,6 +2521,7 @@ extern int ext4_ext_migrate(struct inode *);
 extern int ext4_ind_migrate(struct inode *inode);
 
 /* namei.c */
+int ext4_reread_dir(struct inode *inode, ext4_fsblk_t plbk); //daegyu
 extern int ext4_dirent_csum_verify(struct inode *inode,
 				   struct ext4_dir_entry *dirent);
 extern int ext4_orphan_add(handle_t *, struct inode *);

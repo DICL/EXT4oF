@@ -950,14 +950,28 @@ static int ext4_dio_get_block_overwrite(struct inode *inode, sector_t iblock,
 // added by daegyu 
 int ext4_reread_dir(struct inode *inode, ext4_fsblk_t pblk)
 {
+#ifdef EXT4OF_TIME_CHECK
+	ktime_t start, end;
+	start = ktime_get();
+#endif 
+
 	struct super_block *sb = inode->i_sb;
 	struct buffer_head *bh = sb_getblk(sb, pblk);
 
 	clear_buffer_uptodate(bh);
-	ll_rw_block(REQ_OP_READ, REQ_SYNC | REQ_PRIO, 1, &bh);
+	//ll_rw_block(REQ_OP_READ, REQ_SYNC | REQ_PRIO, 1, &bh);
+	ll_rw_block(REQ_OP_READ, REQ_META | REQ_PRIO, 1, &bh);
 	wait_on_buffer(bh);
-	if(buffer_uptodate(bh))
+
+#ifdef EXT4OF_TIME_CHECK
+	end = ktime_get();
+	u64 elapsed = ((u64)ktime_to_ns(ktime_sub(end, start)) / 1000);
+	pr_info("[ext4_reread_dir] %llu us\n", elapsed);
+#endif 
+
+	if(buffer_uptodate(bh)) {
 		return 1;
+	}
 	else 
 		return 0;
 }
@@ -984,11 +998,13 @@ struct buffer_head *ext4_getblk(handle_t *handle, struct inode *inode,
 	if (err < 0)
 		return ERR_PTR(err);
 
+	/*	
 	// added by daegyu
 	if (inode->i_state & I_INVALID) {
 		if (!ext4_reread_dir(inode, map.m_pblk))
 			ext4_dg_debug("/////// Directory data block reread fail...");
 	}
+	*/
 
 	bh = sb_getblk(inode->i_sb, map.m_pblk);
 	if (unlikely(!bh))
@@ -4837,6 +4853,48 @@ static inline u64 ext4_inode_peek_iversion(const struct inode *inode)
 		return inode_peek_iversion(inode);
 }
 
+// added by daegyu                                                            
+int ext4_refresh_i_table(struct inode *inode) 
+{
+#ifdef EXT4OF_TIME_CHECK
+	ktime_t start, end;
+	start = ktime_get();
+#endif 
+
+	struct super_block *sb = inode->i_sb;
+	ext4_group_t block_group = (inode->i_ino - 1) / EXT4_INODES_PER_GROUP(sb);
+	struct ext4_group_desc *gdp = ext4_get_group_desc(sb, block_group, NULL);
+	struct buffer_head *bh;
+
+	int inodes_per_block = EXT4_SB(sb)->s_inodes_per_block;
+	int inode_offset = ((inode->i_ino - 1) % EXT4_INODES_PER_GROUP(sb));
+
+	ext4_fsblk_t block;
+	// __u32 ra_blks = EXT4_SB(sb)->s_inode_readahead_blks; // 32
+	// caculate block location from inode offset
+	block = ext4_inode_table(sb, gdp) + (inode_offset / inodes_per_block);
+
+	bh = sb_getblk(sb, block); // get inode block
+
+	clear_buffer_uptodate(bh);
+	if (likely(bh)) {
+		ll_rw_block(REQ_OP_READ, REQ_META|REQ_PRIO, 1, &bh);
+		brelse(bh);                  
+	}
+	wait_on_buffer(bh);
+
+#ifdef EXT4OF_TIME_CHECK
+	end = ktime_get();
+	u64 elapsed = ((u64)ktime_to_ns(ktime_sub(end, start)) / 1000);
+	pr_info("[ext4_refresh_i_table] %llu us\n", elapsed);
+#endif 
+
+	if (buffer_uptodate(bh))
+		return 1;
+	else
+		return 0;
+}
+
 struct inode *ext4_iget(struct super_block *sb, unsigned long ino)
 {
 	struct ext4_iloc iloc;
@@ -4859,49 +4917,58 @@ struct inode *ext4_iget(struct super_block *sb, unsigned long ino)
 
 	ei = EXT4_I(inode);
 	iloc.bh = NULL;
+	int i;
 
-	ret = __ext4_get_inode_loc(inode, &iloc, 0);
-	if (ret < 0)
-		goto bad_inode;
-	raw_inode = ext4_raw_inode(&iloc);
+	for (i = 0; i < 3; i++) {
+		ret = __ext4_get_inode_loc(inode, &iloc, 0);
+		if (ret < 0)
+			goto bad_inode;
+		raw_inode = ext4_raw_inode(&iloc);
 
-	if ((ino == EXT4_ROOT_INO) && (raw_inode->i_links_count == 0)) {
-		EXT4_ERROR_INODE(inode, "root inode unallocated");
-		ret = -EFSCORRUPTED;
-		goto bad_inode;
-	}
-
-	if (EXT4_INODE_SIZE(inode->i_sb) > EXT4_GOOD_OLD_INODE_SIZE) {
-		ei->i_extra_isize = le16_to_cpu(raw_inode->i_extra_isize);
-		if (EXT4_GOOD_OLD_INODE_SIZE + ei->i_extra_isize >
-			EXT4_INODE_SIZE(inode->i_sb) ||
-		    (ei->i_extra_isize & 3)) {
-			EXT4_ERROR_INODE(inode,
-					 "bad extra_isize %u (inode size %u)",
-					 ei->i_extra_isize,
-					 EXT4_INODE_SIZE(inode->i_sb));
+		if ((ino == EXT4_ROOT_INO) && (raw_inode->i_links_count == 0)) {
+			EXT4_ERROR_INODE(inode, "root inode unallocated");
 			ret = -EFSCORRUPTED;
 			goto bad_inode;
 		}
-	} else
-		ei->i_extra_isize = 0;
 
-	/* Precompute checksum seed for inode metadata */
-	if (ext4_has_metadata_csum(sb)) {
-		struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
-		__u32 csum;
-		__le32 inum = cpu_to_le32(inode->i_ino);
-		__le32 gen = raw_inode->i_generation;
-		csum = ext4_chksum(sbi, sbi->s_csum_seed, (__u8 *)&inum,
-				   sizeof(inum));
-		ei->i_csum_seed = ext4_chksum(sbi, csum, (__u8 *)&gen,
-					      sizeof(gen));
-	}
+		if (EXT4_INODE_SIZE(inode->i_sb) > EXT4_GOOD_OLD_INODE_SIZE) {
+			ei->i_extra_isize = le16_to_cpu(raw_inode->i_extra_isize);
+			if (EXT4_GOOD_OLD_INODE_SIZE + ei->i_extra_isize >
+					EXT4_INODE_SIZE(inode->i_sb) ||
+					(ei->i_extra_isize & 3)) {
+				EXT4_ERROR_INODE(inode,
+						"bad extra_isize %u (inode size %u)",
+						ei->i_extra_isize,
+						EXT4_INODE_SIZE(inode->i_sb));
+				ret = -EFSCORRUPTED;
+				goto bad_inode;
+			}
+		} else
+			ei->i_extra_isize = 0;
 
-	if (!ext4_inode_csum_verify(inode, raw_inode, ei)) {
-		EXT4_ERROR_INODE(inode, "checksum invalid");
-		ret = -EFSBADCRC;
-		goto bad_inode;
+		/* Precompute checksum seed for inode metadata */
+		if (ext4_has_metadata_csum(sb)) {
+			struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
+			__u32 csum;
+			__le32 inum = cpu_to_le32(inode->i_ino);
+			__le32 gen = raw_inode->i_generation;
+			csum = ext4_chksum(sbi, sbi->s_csum_seed, (__u8 *)&inum,
+					sizeof(inum));
+			ei->i_csum_seed = ext4_chksum(sbi, csum, (__u8 *)&gen,
+					sizeof(gen));
+		}
+
+		if (!ext4_inode_csum_verify(inode, raw_inode, ei)) {
+			if (i < 2) {
+				if(!ext4_refresh_i_table(inode)) // daegyu
+					pr_info("[ FAILED ] Inode table refresh fail.., iter: %d", i);
+			}else {
+				EXT4_ERROR_INODE(inode, "checksum invalid");
+				ret = -EFSBADCRC;
+				goto bad_inode;
+			}
+		}else 
+			break;
 	}
 
 	inode->i_mode = le16_to_cpu(raw_inode->i_mode);
@@ -5105,37 +5172,6 @@ bad_inode:
 	return ERR_PTR(ret);
 }
 
-// added by daegyu                                                            
-int ext4_refresh_i_table(struct inode *inode) 
-{
-	//ext4_dg_debug("");
-	struct super_block *sb = inode->i_sb;
-	ext4_group_t block_group = (inode->i_ino - 1) / EXT4_INODES_PER_GROUP(sb);
-	struct ext4_group_desc *gdp = ext4_get_group_desc(sb, block_group, NULL);
-	struct buffer_head *bh;
-
-	int inodes_per_block = EXT4_SB(sb)->s_inodes_per_block;
-	int inode_offset = ((inode->i_ino - 1) % EXT4_INODES_PER_GROUP(sb));
-
-	ext4_fsblk_t block;
-	unsigned num;
-	// __u32 ra_blks = EXT4_SB(sb)->s_inode_readahead_blks; // 32
-	block = ext4_inode_table(sb, gdp) + (inode_offset / inodes_per_block);
-
-	bh = sb_getblk(sb, block); // get inode block
-
-	clear_buffer_uptodate(bh);
-	if (likely(bh)) {
-		ll_rw_block(REQ_OP_READ, REQ_META|REQ_PRIO, 1, &bh);
-		brelse(bh);                  
-	}
-	wait_on_buffer(bh);
-	if (buffer_uptodate(bh))
-		return 1;
-	else
-		return 0;
-}
-
 // added by daegyu
 struct inode *ext4_iget_remote(struct super_block *sb, unsigned long ino)
 {
@@ -5214,7 +5250,7 @@ struct inode *ext4_iget_remote(struct super_block *sb, unsigned long ino)
 
 		if (!ext4_inode_csum_verify(inode, raw_inode, ei)) {
 			if (i < 2) {
-				if(!ext4_refresh_i_table(inode))
+				if(!ext4_refresh_i_table(inode)) // daegyu
 					ext4_dg_debug("//// Inode table refresh fail.., iter: %d", i);
 			} else {
 				EXT4_ERROR_INODE(inode, "checksum invalid");

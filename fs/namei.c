@@ -1674,12 +1674,12 @@ again:
 			}
 		}
 	} else {
-	
+
 		// added by daegyu 
 		if (flags & O_RDREMOTE) {
 			inode->i_state |= I_INVALID;
 		}
-
+		
 		old = inode->i_op->lookup(inode, dentry, flags);
 		d_lookup_done(dentry);
 		if (unlikely(old)) {
@@ -3324,11 +3324,21 @@ static int do_last(struct nameidata *nd,
 
 		// added by daegyu
 		if (error < 0) {
-			if (open_flag & O_RDREMOTE) {
+			if (open_flag & O_RDREMOTE) {	
+				u64 iter = 0;
+				ktime_t start, end;
+				start = ktime_get();
+
 				nd->flags &= ~LOOKUP_RCU;
 				while (dir->d_lockref.count > 1) {
 					dir->d_lockref.count--;
+					++iter;
 				}
+
+				end = ktime_get();
+				u64 elapsed = ((u64)ktime_to_ns(ktime_sub(end, start)) / 1000);
+				pr_info("[%s] %llu us, iter: %llu\n", __func__, elapsed, iter);
+
 				goto last_path_negative_bypass;
 			}
 			return error;

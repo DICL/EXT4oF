@@ -1426,6 +1426,7 @@ restart:
 			retval = ext4_bread_batch(dir, block, ra_max,
 						  false /* wait */, bh_use);
 			if (retval) {
+				pr_info("[ FAILED ] retval :%d\n", retval); // daegyu
 				ret = ERR_PTR(retval);
 				ra_max = 0;
 				goto cleanup_and_exit;
@@ -1452,17 +1453,47 @@ restart:
 			ret = ERR_PTR(-EFSBADCRC);
 			goto cleanup_and_exit;
 		}
+EXT4OF_RETRY:
 		set_buffer_verified(bh);
 		i = search_dirblock(bh, dir, &fname,
 			    block << EXT4_BLOCK_SIZE_BITS(sb), res_dir);
 		if (i == 1) {
+
+			if (dir->i_state & I_INVALID) {
+				dir->i_state &= ~I_INVALID;
+				pr_info("[ INFO ] %s is already refreshed\n", name); // daegyu
+			}
+
 			EXT4_I(dir)->i_dir_start_lookup = block;
 			ret = bh;
 			goto cleanup_and_exit;
 		} else {
-			brelse(bh);
-			if (i < 0)
-				goto cleanup_and_exit;
+
+			if (dir->i_state & I_INVALID) {
+				if(i == 0) {
+					//pr_info("[ INFO ] search_dirblock i=%d\n", i); // daegyu
+					struct ext4_map_blocks map;
+					//int create = map_flags & EXT4_GET_BLOCKS_CREATE;
+					int map_flags = 0;
+					int err;
+
+					map.m_lblk = block;
+					map.m_len = 1;
+					err = ext4_map_blocks(NULL, dir, &map, map_flags);
+					/*
+					if (err == 0)
+						return create ? ERR_PTR(-ENOSPC) : NULL;
+					if (err < 0)
+						return ERR_PTR(err);
+					*/
+					ext4_reread_dir(dir, map.m_pblk); 
+					goto EXT4OF_RETRY;
+				}
+			}else {
+				brelse(bh);
+				if (i < 0)
+					goto cleanup_and_exit;
+			}
 		}
 	next:
 		if (++block >= nblocks)
@@ -1574,10 +1605,35 @@ static struct dentry *ext4_lookup(struct inode *dir, struct dentry *dentry, unsi
 
 		// added by daegyu
 		if (dir->i_state & I_INVALID) {
+#ifdef EXT4OF_TIME_CHECK2
+			ktime_t start, end;
+			start = ktime_get();
+#endif
+
 			inode = ext4_iget_remote(dir->i_sb, ino);
 			dir->i_state &= ~I_INVALID;
-		} else 
+
+#ifdef EXT4OF_TIME_CHECK2
+			end = ktime_get();
+			u64 elapsed = ((u64)ktime_to_ns(ktime_sub(end, start)) / 1000);
+			pr_info("[ext4_iget_remote] %llu us, dentry:%s, d_parent:%s\n", 
+						elapsed, dentry->d_name.name, dentry->d_parent->d_name.name);
+#endif
+		} else {
+#ifdef EXT4OF_TIME_CHECK2
+			ktime_t start, end;
+			start = ktime_get();
+#endif 
+
 			inode = ext4_iget_normal(dir->i_sb, ino);
+			
+#ifdef EXT4OF_TIME_CHECK2
+			end = ktime_get();
+			u64 elapsed = ((u64)ktime_to_ns(ktime_sub(end, start)) / 1000);
+			pr_info("[ext4_iget_normal] %llu us, dentry:%s, d_parent:%s\n", 
+						elapsed, dentry->d_name.name, dentry->d_parent->d_name.name);
+#endif
+		}
 
 
 		if (inode == ERR_PTR(-ESTALE)) {
