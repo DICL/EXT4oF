@@ -71,10 +71,10 @@
  */
 
 // added by daegyu
-#define EXT4OF_TIME_CHECK
+//#define EXT4OF_TIME_CHECK
 //#define EXT4OF_TIME_CHECK2
+//#define EXT4_DG_DEBUG
 
-#define EXT4_DG_DEBUG
 #ifdef EXT4_DG_DEBUG 
 #define ext4_dg_debug(fmt, ...)  printk("%s :" fmt, __func__, ##__VA_ARGS__)
 #else 
