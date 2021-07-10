@@ -10,7 +10,7 @@ A prototype feature for WORM(Write Once Read Multiple) workload.
 2. Compile and install linux source code
 
 ## Basic usage
-1. If you want to trigger "refreshing file system metadata", please open() a file with O_RDREMOTE flag.
+1. If you want to trigger "refreshing file system metadata", please open() a file with O_RDREMOTE flag from reader server.
 
 
 ## Notice (Limiations)
@@ -29,6 +29,7 @@ A prototype feature for WORM(Write Once Read Multiple) workload.
 
 ## Contact 
 If you have questions, please, contact: (virtual machine setup, IPMI setting, etc.)
+
 Daegyu Han (hdg9400 "at" skku.edu)    
 
 Linux kernel
