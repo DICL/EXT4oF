@@ -2,10 +2,12 @@
 A prototype feature for WORM(Write Once Read Multiple) workload.
 
 ## Prerequiste
+```
 1. Add O_RDREMOTE flag to "/usr/include/x86_64-linux-gnu/bits/fcntl-linux.h"
 #ifndef O_RDREMOTE
 #define O_RDREMOTE  040000000
 #endif
+```
 
 2. Compile and install linux source code
 
